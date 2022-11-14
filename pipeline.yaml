@@ -1,0 +1,979 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: preprocessing-pipeline-
+  annotations:
+    pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+    pipelines.kubeflow.org/pipeline_compilation_time: '2022-11-14T13:55:36.043286'
+    pipelines.kubeflow.org/pipeline_spec: '{"description": "An example pipeline that
+      creates the dataset.", "inputs": [{"default": "gs://data-bucket-6929d24320ef4e55/dataTrain/train.csv",
+      "name": "path", "optional": true, "type": "String"}, {"default": "gs://data-bucket-6929d24320ef4e55/dataTrain/build",
+      "name": "pipeline-root"}, {"default": "pipeline/preprocessing-pipeline", "name":
+      "pipeline-name"}], "name": "preprocessing-pipeline"}'
+    pipelines.kubeflow.org/v2_pipeline: "true"
+  labels:
+    pipelines.kubeflow.org/v2_pipeline: "true"
+    pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+spec:
+  entrypoint: preprocessing-pipeline
+  templates:
+  - name: create-dataset
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'pandas' 'fsspec' 'gcsfs' 'numpy' 'kfp==1.8.14' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def create_dataset(path: str, dataset: OutputPath(Dataset)):
+            import pandas as pd
+            import numpy as np
+            df = pd.read_csv(path)
+
+            # drop_unnecessary_columns
+            columns = ['PassengerId']
+
+            df = df.drop(columns, axis=1)
+
+            # fill_empty_age_values
+            mean = df['Age'].mean()
+            std = df['Age'].std()
+            total_nulls = df['Age'].isnull().sum()
+
+            randon_age_range = np.random.randint(mean - std, mean + std, size=total_nulls)
+            age_feat_slice = df['Age'].copy()
+            age_feat_slice[np.isnan(age_feat_slice)] = randon_age_range
+
+            df['Age'] = age_feat_slice
+            df['Age'] = df['Age'].astype(int)
+
+            # fill_empty_embarked_values
+            common_val = 'S'
+
+            df['Embarked'] = df['Embarked'].fillna(common_val)
+
+            df['Fare'] = df['Fare'].fillna(0)
+            df['Fare'] = df['Fare'].astype(int)
+
+            # with open(test, 'w') as writer:
+            #    writer.write(df.to_csv())
+            df.to_csv(dataset, index=False)
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - create_dataset
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, create-dataset, --pipeline_name,
+        '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID), --run_resource,
+        workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE), --pod_name,
+        $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, 'path={{inputs.parameters.path}}',
+        --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'python:3.7'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {"path": {"type":
+          "STRING"}}, "inputArtifacts": {}, "outputParameters": {}, "outputArtifacts":
+          {"dataset": {"schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/dataset/data"}}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: python:3.7
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: path}
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+    outputs:
+      artifacts:
+      - {name: create-dataset-dataset, path: /tmp/outputs/dataset/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+        pipelines.kubeflow.org/arguments.parameters: '{"path": "{{inputs.parameters.path}}"}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.7
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: create-feature-engineering-pipeline
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'pandas' 'fsspec' 'gcsfs' 'numpy' 'kfp==1.8.14' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def create_feature_engineering_pipeline(path: InputPath(Dataset),
+                                                dataset_feature_engineering: OutputPath(Dataset)) -> Dataset:
+            import pandas as pd
+            import re
+
+            df = pd.read_csv(path)
+
+            # create_deck_feature
+            drop_cabin = False
+
+            decks = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7, "U": 8}
+            df['Cabin'] = df['Cabin'].fillna('U0')
+            df['Deck'] = df['Cabin'].apply(lambda x: re.compile("([a-zA-Z]+)").search(x).group())
+            df['Deck'] = df['Deck'].map(decks)
+            df['Deck'] = df['Deck'].fillna(0)
+            df['Deck'] = df['Deck'].astype(int)
+
+            if drop_cabin:
+                df.drop(['Cabin'], axis=1)
+
+            # create_title_feature
+            df['Title'] = df['Name'].str.extract('([A-Za-z]+)\.', expand=False)
+            df['Title'] = df['Title'].replace(
+                ['Lady', 'Countess', 'Capt', 'Col', 'Don', 'Dr', 'Major', 'Rev', 'Sir', 'Jonkheer', 'Dona'], 'Other'
+            )
+            df['Title'] = df['Title'].replace('Mlle', 'Miss')
+            df['Title'] = df['Title'].replace('Ms', 'Miss')
+            df['Title'] = df['Title'].replace('Mme', 'Mrs')
+
+            drop_name = False
+
+            if drop_name:
+                df = df.drop(['Name'], axis=1, inplace=True)
+
+            # encode_sex
+            sexes = {"male": 0, "female": 1}
+            df['Sex'] = df['Sex'].map(sexes)
+
+            # create_relatives_feature
+            df['Relatives'] = df['SibSp'] + df['Parch']
+
+            drop_features = False
+            if drop_features:
+                df = df.drop(['SibSp', 'Parch'], axis=1, inplace=True)
+
+            # drop_unnecessary_columns
+            df = df.drop(['Cabin', 'Name', 'Ticket', 'SibSp', 'Parch'], axis=1)
+
+            # encode_embarked_ports
+            encoded_ports = {'S': 0, 'C': 1, 'Q': 2}
+
+            df['Embarked'] = df['Embarked'].map(encoded_ports)
+
+            # encode_fare
+            df.loc[df['Fare'] <= 7.91, 'Fare'] = 0
+            df.loc[(df['Fare'] > 7.91) & (df['Fare'] <= 14.454), 'Fare'] = 1
+            df.loc[(df['Fare'] > 14.454) & (df['Fare'] <= 31), 'Fare'] = 2
+            df.loc[(df['Fare'] > 31) & (df['Fare'] <= 99), 'Fare'] = 3
+            df.loc[(df['Fare'] > 99) & (df['Fare'] <= 250), 'Fare'] = 4
+            df.loc[df['Fare'] > 250, 'Fare'] = 5
+            df['Fare'] = df['Fare'].astype(int)
+
+            # encode_age_ranges
+            df['Age'] = df['Age'].astype(int)
+
+            df.loc[df['Age'] <= 11, 'Age'] = 0
+            df.loc[(df['Age'] > 11) & (df['Age'] <= 18), 'Age'] = 1
+            df.loc[(df['Age'] > 18) & (df['Age'] <= 22), 'Age'] = 2
+            df.loc[(df['Age'] > 22) & (df['Age'] <= 27), 'Age'] = 3
+            df.loc[(df['Age'] > 27) & (df['Age'] <= 33), 'Age'] = 4
+            df.loc[(df['Age'] > 33) & (df['Age'] <= 40), 'Age'] = 5
+            df.loc[(df['Age'] > 40) & (df['Age'] <= 66), 'Age'] = 6
+            df.loc[df['Age'] > 66, 'Age'] = 7
+
+            # encode_title_feature
+            titles = {"Mr": 1, "Miss": 2, "Mrs": 3, "Master": 4, "Rare": 5}
+
+            df['Title'] = df['Title'].map(titles)
+            df['Title'] = df['Title'].fillna(0)
+
+            # create_age_class_feature
+            df['Age_Class'] = df['Age'] * df['Pclass']
+
+            df.to_csv(dataset_feature_engineering, index=False)
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - create_feature_engineering_pipeline
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, create-feature-engineering-pipeline,
+        --pipeline_name, '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID),
+        --run_resource, workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE),
+        --pod_name, $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'python:3.7'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {}, "inputArtifacts":
+          {"path": {"metadataPath": "/tmp/inputs/path/data", "schemaTitle": "system.Dataset",
+          "instanceSchema": "", "schemaVersion": "0.0.1"}}, "outputParameters": {},
+          "outputArtifacts": {"Output": {"schemaTitle": "system.Dataset", "instanceSchema":
+          "", "schemaVersion": "0.0.1", "metadataPath": "/tmp/outputs/Output/data"},
+          "dataset_feature_engineering": {"schemaTitle": "system.Dataset", "instanceSchema":
+          "", "schemaVersion": "0.0.1", "metadataPath": "/tmp/outputs/dataset_feature_engineering/data"}}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: python:3.7
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      artifacts:
+      - {name: create-dataset-dataset, path: /tmp/inputs/path/data}
+    outputs:
+      artifacts:
+      - {name: create-feature-engineering-pipeline-Output, path: /tmp/outputs/Output/data}
+      - {name: create-feature-engineering-pipeline-dataset_feature_engineering, path: /tmp/outputs/dataset_feature_engineering/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.7
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: create-ml-pipeline-classifier
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'pandas' 'scikit-learn' 'mlflow' 'kfp==1.8.14' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def create_ml_pipeline_classifier(path: InputPath(Dataset)) -> float:
+            import pandas as pd
+            from sklearn.tree import DecisionTreeClassifier
+            import mlflow
+
+            mlflow.set_experiment(experiment_name="mlflow-demo")
+
+            df = pd.read_csv(path)
+
+            # split_dataset_for_training
+            x = df.drop(['Survived'], axis=1)
+            y = df['Survived']
+
+            # create_and_train_decision_tree_model
+            model = DecisionTreeClassifier()
+            model.fit(x, y)
+
+            # compute_accuracy
+            accuracy = model.score(x, y)
+            print(accuracy)
+            accuracy = round(accuracy * 100, 2)
+
+            mlflow.log_metric("accuracy", accuracy)
+
+            return accuracy
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - create_ml_pipeline_classifier
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, create-ml-pipeline-classifier,
+        --pipeline_name, '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID),
+        --run_resource, workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE),
+        --pod_name, $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'python:3.7'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {}, "inputArtifacts":
+          {"path": {"metadataPath": "/tmp/inputs/path/data", "schemaTitle": "system.Dataset",
+          "instanceSchema": "", "schemaVersion": "0.0.1"}}, "outputParameters": {"Output":
+          {"type": "DOUBLE", "path": "/tmp/outputs/Output/data"}}, "outputArtifacts":
+          {}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: python:3.7
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      artifacts:
+      - {name: create-feature-engineering-pipeline-dataset_feature_engineering, path: /tmp/inputs/path/data}
+    outputs:
+      parameters:
+      - name: create-ml-pipeline-classifier-Output
+        valueFrom: {path: /tmp/outputs/Output/data}
+      artifacts:
+      - {name: create-ml-pipeline-classifier-Output, path: /tmp/outputs/Output/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.7
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: create-ml-pipeline-extra-classifier
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'pandas' 'scikit-learn' 'kfp==1.8.14' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def create_ml_pipeline_extra_classifier(path: InputPath(Dataset)) -> float:
+            import pandas as pd
+            from sklearn.tree import ExtraTreeClassifier
+
+            df = pd.read_csv(path)
+
+            # split_dataset_for_training
+            x = df.drop(['Survived'], axis=1)
+            y = df['Survived']
+
+            # create_and_train_decision_tree_model
+            model = ExtraTreeClassifier()
+            model.fit(x, y)
+
+            # compute_accuracy
+            accuracy = model.score(x, y)
+            print(accuracy)
+            accuracy = round(accuracy * 100, 2)
+
+            return accuracy
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - create_ml_pipeline_extra_classifier
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, create-ml-pipeline-extra-classifier,
+        --pipeline_name, '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID),
+        --run_resource, workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE),
+        --pod_name, $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'python:3.7'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {}, "inputArtifacts":
+          {"path": {"metadataPath": "/tmp/inputs/path/data", "schemaTitle": "system.Dataset",
+          "instanceSchema": "", "schemaVersion": "0.0.1"}}, "outputParameters": {"Output":
+          {"type": "DOUBLE", "path": "/tmp/outputs/Output/data"}}, "outputArtifacts":
+          {}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: python:3.7
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      artifacts:
+      - {name: create-feature-engineering-pipeline-dataset_feature_engineering, path: /tmp/inputs/path/data}
+    outputs:
+      parameters:
+      - name: create-ml-pipeline-extra-classifier-Output
+        valueFrom: {path: /tmp/outputs/Output/data}
+      artifacts:
+      - {name: create-ml-pipeline-extra-classifier-Output, path: /tmp/outputs/Output/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.7
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: create-ml-pipeline-extra-regressor
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'pandas' 'scikit-learn' 'kfp==1.8.14' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def create_ml_pipeline_extra_regressor(path: InputPath(Dataset)) -> float:
+            import pandas as pd
+            from sklearn.tree import ExtraTreeRegressor
+
+            df = pd.read_csv(path)
+
+            # split_dataset_for_training
+            x = df.drop(['Survived'], axis=1)
+            y = df['Survived']
+
+            # create_and_train_decision_tree_model
+            model = ExtraTreeRegressor()
+            model.fit(x, y)
+
+            # compute_accuracy
+            accuracy = model.score(x, y)
+            print(accuracy)
+            accuracy = round(accuracy * 100, 2)
+
+            return accuracy
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - create_ml_pipeline_extra_regressor
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, create-ml-pipeline-extra-regressor,
+        --pipeline_name, '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID),
+        --run_resource, workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE),
+        --pod_name, $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'python:3.7'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {}, "inputArtifacts":
+          {"path": {"metadataPath": "/tmp/inputs/path/data", "schemaTitle": "system.Dataset",
+          "instanceSchema": "", "schemaVersion": "0.0.1"}}, "outputParameters": {"Output":
+          {"type": "DOUBLE", "path": "/tmp/outputs/Output/data"}}, "outputArtifacts":
+          {}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: python:3.7
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      artifacts:
+      - {name: create-feature-engineering-pipeline-dataset_feature_engineering, path: /tmp/inputs/path/data}
+    outputs:
+      parameters:
+      - name: create-ml-pipeline-extra-regressor-Output
+        valueFrom: {path: /tmp/outputs/Output/data}
+      artifacts:
+      - {name: create-ml-pipeline-extra-regressor-Output, path: /tmp/outputs/Output/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.7
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: create-ml-pipeline-regressor
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'pandas' 'scikit-learn' 'kfp==1.8.14' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def create_ml_pipeline_regressor(path: InputPath(Dataset)) -> float:
+            import pandas as pd
+            from sklearn.tree import DecisionTreeRegressor
+
+            df = pd.read_csv(path)
+
+            # split_dataset_for_training
+            x = df.drop(['Survived'], axis=1)
+            y = df['Survived']
+
+            # create_and_train_decision_tree_model
+            model = DecisionTreeRegressor()
+            model.fit(x, y)
+
+            # compute_accuracy
+            accuracy = model.score(x, y)
+            print(accuracy)
+            accuracy = round(accuracy * 100, 2)
+
+            return accuracy
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - create_ml_pipeline_regressor
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, create-ml-pipeline-regressor,
+        --pipeline_name, '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID),
+        --run_resource, workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE),
+        --pod_name, $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'python:3.7'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {}, "inputArtifacts":
+          {"path": {"metadataPath": "/tmp/inputs/path/data", "schemaTitle": "system.Dataset",
+          "instanceSchema": "", "schemaVersion": "0.0.1"}}, "outputParameters": {"Output":
+          {"type": "DOUBLE", "path": "/tmp/outputs/Output/data"}}, "outputArtifacts":
+          {}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: python:3.7
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      artifacts:
+      - {name: create-feature-engineering-pipeline-dataset_feature_engineering, path: /tmp/inputs/path/data}
+    outputs:
+      parameters:
+      - name: create-ml-pipeline-regressor-Output
+        valueFrom: {path: /tmp/outputs/Output/data}
+      artifacts:
+      - {name: create-ml-pipeline-regressor-Output, path: /tmp/outputs/Output/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.7
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: evaluate-accuracy
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.14' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def evaluate_accuracy(first_acc: float,second_acc: float,third_acc: float,fourth_acc: float) -> str:
+            if first_acc >= second_acc and first_acc >= third_acc and first_acc >= fourth_acc:
+                return 'DecisionTreeClassifier ' + str(first_acc)
+            elif second_acc >= first_acc and second_acc >= third_acc and second_acc >= fourth_acc:
+                return 'DecisionTreeRegressor ' + str(second_acc)
+            elif third_acc >= first_acc and third_acc >= second_acc and third_acc >= fourth_acc:
+                return 'DecisionTreeRegressor ' + str(third_acc)
+            return 'ExtraTreeRegressor ' + str(fourth_acc)
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - evaluate_accuracy
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, evaluate-accuracy, --pipeline_name,
+        '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID), --run_resource,
+        workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE), --pod_name,
+        $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, 'first_acc={{inputs.parameters.create-ml-pipeline-classifier-Output}}',
+        'fourth_acc={{inputs.parameters.create-ml-pipeline-extra-regressor-Output}}',
+        'second_acc={{inputs.parameters.create-ml-pipeline-regressor-Output}}', 'third_acc={{inputs.parameters.create-ml-pipeline-extra-classifier-Output}}',
+        --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'python:3.7'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {"first_acc": {"type":
+          "DOUBLE"}, "fourth_acc": {"type": "DOUBLE"}, "second_acc": {"type": "DOUBLE"},
+          "third_acc": {"type": "DOUBLE"}}, "inputArtifacts": {}, "outputParameters":
+          {"Output": {"type": "STRING", "path": "/tmp/outputs/Output/data"}}, "outputArtifacts":
+          {}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: python:3.7
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: create-ml-pipeline-classifier-Output}
+      - {name: create-ml-pipeline-extra-classifier-Output}
+      - {name: create-ml-pipeline-extra-regressor-Output}
+      - {name: create-ml-pipeline-regressor-Output}
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+    outputs:
+      artifacts:
+      - {name: evaluate-accuracy-Output, path: /tmp/outputs/Output/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+        pipelines.kubeflow.org/arguments.parameters: '{"first_acc": "{{inputs.parameters.create-ml-pipeline-classifier-Output}}",
+          "fourth_acc": "{{inputs.parameters.create-ml-pipeline-extra-regressor-Output}}",
+          "second_acc": "{{inputs.parameters.create-ml-pipeline-regressor-Output}}",
+          "third_acc": "{{inputs.parameters.create-ml-pipeline-extra-classifier-Output}}"}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.7
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: preprocessing-pipeline
+    inputs:
+      parameters:
+      - {name: path}
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+    dag:
+      tasks:
+      - name: create-dataset
+        template: create-dataset
+        arguments:
+          parameters:
+          - {name: path, value: '{{inputs.parameters.path}}'}
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+      - name: create-feature-engineering-pipeline
+        template: create-feature-engineering-pipeline
+        dependencies: [create-dataset]
+        arguments:
+          parameters:
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          artifacts:
+          - {name: create-dataset-dataset, from: '{{tasks.create-dataset.outputs.artifacts.create-dataset-dataset}}'}
+      - name: create-ml-pipeline-classifier
+        template: create-ml-pipeline-classifier
+        dependencies: [create-feature-engineering-pipeline]
+        arguments:
+          parameters:
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          artifacts:
+          - {name: create-feature-engineering-pipeline-dataset_feature_engineering,
+            from: '{{tasks.create-feature-engineering-pipeline.outputs.artifacts.create-feature-engineering-pipeline-dataset_feature_engineering}}'}
+      - name: create-ml-pipeline-extra-classifier
+        template: create-ml-pipeline-extra-classifier
+        dependencies: [create-feature-engineering-pipeline]
+        arguments:
+          parameters:
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          artifacts:
+          - {name: create-feature-engineering-pipeline-dataset_feature_engineering,
+            from: '{{tasks.create-feature-engineering-pipeline.outputs.artifacts.create-feature-engineering-pipeline-dataset_feature_engineering}}'}
+      - name: create-ml-pipeline-extra-regressor
+        template: create-ml-pipeline-extra-regressor
+        dependencies: [create-feature-engineering-pipeline]
+        arguments:
+          parameters:
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          artifacts:
+          - {name: create-feature-engineering-pipeline-dataset_feature_engineering,
+            from: '{{tasks.create-feature-engineering-pipeline.outputs.artifacts.create-feature-engineering-pipeline-dataset_feature_engineering}}'}
+      - name: create-ml-pipeline-regressor
+        template: create-ml-pipeline-regressor
+        dependencies: [create-feature-engineering-pipeline]
+        arguments:
+          parameters:
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          artifacts:
+          - {name: create-feature-engineering-pipeline-dataset_feature_engineering,
+            from: '{{tasks.create-feature-engineering-pipeline.outputs.artifacts.create-feature-engineering-pipeline-dataset_feature_engineering}}'}
+      - name: evaluate-accuracy
+        template: evaluate-accuracy
+        dependencies: [create-ml-pipeline-classifier, create-ml-pipeline-extra-classifier,
+          create-ml-pipeline-extra-regressor, create-ml-pipeline-regressor]
+        arguments:
+          parameters:
+          - {name: create-ml-pipeline-classifier-Output, value: '{{tasks.create-ml-pipeline-classifier.outputs.parameters.create-ml-pipeline-classifier-Output}}'}
+          - {name: create-ml-pipeline-extra-classifier-Output, value: '{{tasks.create-ml-pipeline-extra-classifier.outputs.parameters.create-ml-pipeline-extra-classifier-Output}}'}
+          - {name: create-ml-pipeline-extra-regressor-Output, value: '{{tasks.create-ml-pipeline-extra-regressor.outputs.parameters.create-ml-pipeline-extra-regressor-Output}}'}
+          - {name: create-ml-pipeline-regressor-Output, value: '{{tasks.create-ml-pipeline-regressor.outputs.parameters.create-ml-pipeline-regressor-Output}}'}
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+  arguments:
+    parameters:
+    - {name: path, value: 'gs://data-bucket-6929d24320ef4e55/dataTrain/train.csv'}
+    - {name: pipeline-root, value: 'gs://data-bucket-6929d24320ef4e55/dataTrain/build'}
+    - {name: pipeline-name, value: pipeline/preprocessing-pipeline}
+  serviceAccountName: pipeline-runner
