@@ -1,8 +1,11 @@
+import numpy as np
 from kfp.v2.dsl import component, Dataset, OutputPath, InputPath, Input, Output
 from pandas import DataFrame
 
 import mlflow
 import mlflow.sklearn
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
 
 # from typing import List, Dict, Any
 
@@ -140,14 +143,16 @@ def create_ml_pipeline_classifier(path: InputPath(Dataset)) -> float:
     import pandas as pd
     from sklearn.tree import DecisionTreeClassifier
     import mlflow
+    from mlflow.models.signature import infer_signature
 
+    mlflow.set_tracking_uri("http://my-mlflow.mlflow.svc.cluster.local:5000")
     mlflow.set_experiment(experiment_name="mlflow-demo")
-
+    mlflow.set_registry_uri("postgresql://data-bucket-6929d24320ef4e55/dataTrain/modelbuilt")
     df = pd.read_csv(path)
 
     # split_dataset_for_training
     x = df.drop(['Survived'], axis=1)
-    y = df['Survived']
+    y = df[['Survived']]
 
     # create_and_train_decision_tree_model
     model = DecisionTreeClassifier()
@@ -158,9 +163,18 @@ def create_ml_pipeline_classifier(path: InputPath(Dataset)) -> float:
     print(accuracy)
     accuracy = round(accuracy * 100, 2)
 
+    signature = infer_signature(x, y)
     mlflow.log_metric("accuracy", accuracy)
+    mlflow.sklearn.log_model(sk_model=model, artifact_path="sklearn-model", registered_model_name="sklearn-model", signature=signature)
 
     return accuracy
+
+def eval_metrics(actual, pred):
+    rmse = np.sqrt(mean_squared_error(actual, pred))
+    mae = mean_absolute_error(actual, pred)
+    r2 = r2_score(actual, pred)
+    return rmse, mae, r2
+
 
 
 @component(
@@ -239,7 +253,7 @@ def create_ml_pipeline_extra_regressor(path: InputPath(Dataset)) -> float:
 
 
 @component()
-def evaluate_accuracy(first_acc: float,second_acc: float,third_acc: float,fourth_acc: float) -> str:
+def evaluate_accuracy(first_acc: float, second_acc: float, third_acc: float, fourth_acc: float) -> str:
     if first_acc >= second_acc and first_acc >= third_acc and first_acc >= fourth_acc:
         return 'DecisionTreeClassifier ' + str(first_acc)
     elif second_acc >= first_acc and second_acc >= third_acc and second_acc >= fourth_acc:
