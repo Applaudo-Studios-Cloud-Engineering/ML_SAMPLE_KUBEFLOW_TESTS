@@ -51,7 +51,7 @@ def create_dataset(path: str, dataset: OutputPath(Dataset)):
     packages_to_install=["pandas", "fsspec", "gcsfs", "numpy"],
 )
 def create_feature_engineering_pipeline(path: InputPath(Dataset),
-                                        dataset_feature_engineering: OutputPath(Dataset)) -> Dataset:
+                                        dataset_feature_engineering: OutputPath(Dataset)):
     import pandas as pd
     import re
 
@@ -137,7 +137,7 @@ def create_feature_engineering_pipeline(path: InputPath(Dataset),
 
 
 @component(
-    packages_to_install=["pandas", "scikit-learn", "mlflow"],
+    packages_to_install=["pandas", "scikit-learn", "mlflow", "psycopg2-binary"],
 )
 def create_ml_pipeline_classifier(path: InputPath(Dataset)) -> float:
     import pandas as pd
@@ -147,12 +147,13 @@ def create_ml_pipeline_classifier(path: InputPath(Dataset)) -> float:
 
     mlflow.set_tracking_uri("http://my-mlflow.mlflow.svc.cluster.local:5000")
     mlflow.set_experiment(experiment_name="mlflow-demo")
-    mlflow.set_registry_uri("postgresql://data-bucket-6929d24320ef4e55/dataTrain/modelbuilt")
+    mlflow.set_registry_uri("postgresql://mlflow:password@host/mlflow")
+    # mlflow.set
     df = pd.read_csv(path)
 
     # split_dataset_for_training
     x = df.drop(['Survived'], axis=1)
-    y = df[['Survived']]
+    y = df['Survived']
 
     # create_and_train_decision_tree_model
     model = DecisionTreeClassifier()

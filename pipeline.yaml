@@ -4,7 +4,7 @@ metadata:
   generateName: preprocessing-pipeline-
   annotations:
     pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
-    pipelines.kubeflow.org/pipeline_compilation_time: '2022-11-14T15:38:19.216011'
+    pipelines.kubeflow.org/pipeline_compilation_time: '2022-11-15T11:27:03.984164'
     pipelines.kubeflow.org/pipeline_spec: '{"description": "An example pipeline that
       creates the dataset.", "inputs": [{"default": "gs://data-bucket-6929d24320ef4e55/dataTrain/train.csv",
       "name": "path", "optional": true, "type": "String"}, {"default": "gs://data-bucket-6929d24320ef4e55/dataTrain/build",
@@ -168,7 +168,7 @@ spec:
         from typing import *
 
         def create_feature_engineering_pipeline(path: InputPath(Dataset),
-                                                dataset_feature_engineering: OutputPath(Dataset)) -> Dataset:
+                                                dataset_feature_engineering: OutputPath(Dataset)):
             import pandas as pd
             import re
 
@@ -286,10 +286,8 @@ spec:
       - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {}, "inputArtifacts":
           {"path": {"metadataPath": "/tmp/inputs/path/data", "schemaTitle": "system.Dataset",
           "instanceSchema": "", "schemaVersion": "0.0.1"}}, "outputParameters": {},
-          "outputArtifacts": {"Output": {"schemaTitle": "system.Dataset", "instanceSchema":
-          "", "schemaVersion": "0.0.1", "metadataPath": "/tmp/outputs/Output/data"},
-          "dataset_feature_engineering": {"schemaTitle": "system.Dataset", "instanceSchema":
-          "", "schemaVersion": "0.0.1", "metadataPath": "/tmp/outputs/dataset_feature_engineering/data"}}}'}
+          "outputArtifacts": {"dataset_feature_engineering": {"schemaTitle": "system.Dataset",
+          "instanceSchema": "", "schemaVersion": "0.0.1", "metadataPath": "/tmp/outputs/dataset_feature_engineering/data"}}}'}
       envFrom:
       - configMapRef: {name: metadata-grpc-configmap, optional: true}
       image: python:3.7
@@ -303,7 +301,6 @@ spec:
       - {name: create-dataset-dataset, path: /tmp/inputs/path/data}
     outputs:
       artifacts:
-      - {name: create-feature-engineering-pipeline-Output, path: /tmp/outputs/Output/data}
       - {name: create-feature-engineering-pipeline-dataset_feature_engineering, path: /tmp/outputs/dataset_feature_engineering/data}
     metadata:
       annotations:
@@ -332,7 +329,7 @@ spec:
             python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
         fi
 
-        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'pandas' 'scikit-learn' 'mlflow' 'kfp==1.8.14' && "$0" "$@"
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'pandas' 'scikit-learn' 'mlflow' 'psycopg2-binary' 'kfp==1.8.14' && "$0" "$@"
       - sh
       - -ec
       - |
@@ -354,12 +351,13 @@ spec:
 
             mlflow.set_tracking_uri("http://my-mlflow.mlflow.svc.cluster.local:5000")
             mlflow.set_experiment(experiment_name="mlflow-demo")
-            mlflow.set_registry_uri("http://data-bucket-6929d24320ef4e55/dataTrain/modelbuilt")
+            mlflow.set_registry_uri("postgresql://mlflow:mlflow-difficult-password@35.202.168.181:5432/mlflow")
+            # mlflow.set
             df = pd.read_csv(path)
 
             # split_dataset_for_training
             x = df.drop(['Survived'], axis=1)
-            y = df[['Survived']]
+            y = df['Survived']
 
             # create_and_train_decision_tree_model
             model = DecisionTreeClassifier()
