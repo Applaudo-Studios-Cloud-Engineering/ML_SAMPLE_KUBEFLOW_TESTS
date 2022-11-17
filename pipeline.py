@@ -10,18 +10,21 @@ from typing import List
 @dsl.pipeline(
     name='preprocessing-pipeline',
     description='An example pipeline that creates the dataset.',
-    pipeline_root='gs://data-bucket-6929d24320ef4e55/dataTrain/build'
+    pipeline_root='gs://data-bucket-6929d24320ef4e55/dataTrain/build',
 )
 def preprocessing_pipeline(path: str = 'gs://data-bucket-6929d24320ef4e55/dataTrain/train.csv'):
     dataset_task = create_dataset(path)
     # print(dataset_task.outputs["test"])
     task = create_feature_engineering_pipeline(dataset_task.outputs["dataset"])
+
     first_acc = create_ml_pipeline_classifier(path=task.outputs["dataset_feature_engineering"])
     second_acc = create_ml_pipeline_regressor(path=task.outputs["dataset_feature_engineering"])
     third_acc = create_ml_pipeline_extra_classifier(
         path=task.outputs["dataset_feature_engineering"])
     fourth_acc = create_ml_pipeline_extra_regressor(
         path=task.outputs["dataset_feature_engineering"])
+
+    first_acc.execution_options.caching_strategy.max_cache_staleness = "P0D"
 
     winner = evaluate_accuracy(first_acc.output, second_acc.output, third_acc.output, fourth_acc.output)
 

@@ -4,7 +4,7 @@ metadata:
   generateName: preprocessing-pipeline-
   annotations:
     pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
-    pipelines.kubeflow.org/pipeline_compilation_time: '2022-11-15T11:27:03.984164'
+    pipelines.kubeflow.org/pipeline_compilation_time: '2022-11-17T09:19:45.377957'
     pipelines.kubeflow.org/pipeline_spec: '{"description": "An example pipeline that
       creates the dataset.", "inputs": [{"default": "gs://data-bucket-6929d24320ef4e55/dataTrain/train.csv",
       "name": "path", "optional": true, "type": "String"}, {"default": "gs://data-bucket-6929d24320ef4e55/dataTrain/build",
@@ -329,7 +329,7 @@ spec:
             python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
         fi
 
-        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'pandas' 'scikit-learn' 'mlflow' 'psycopg2-binary' 'kfp==1.8.14' && "$0" "$@"
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'pandas' 'scikit-learn' 'mlflow' 'pymysql' 'google-cloud-storage' 'mysqlclient' 'kfp==1.8.14' && "$0" "$@"
       - sh
       - -ec
       - |
@@ -347,12 +347,22 @@ spec:
             import pandas as pd
             from sklearn.tree import DecisionTreeClassifier
             import mlflow
+            import os
+            from google.cloud import storage
             from mlflow.models.signature import infer_signature
 
+            # os.environ["MLFLOW_TRACKING_URI "] = "http://my-minio.minio.svc.cluster.local:5000"
+            # os.environ["MLFLOW_DEFAULT_ARTIFACT_ROOT"] = "s3://mlflow/"
+            # os.environ["MLFLOW_ARTIFACTS_DESTINATION"] = "s3://mlflow/"
+
             mlflow.set_tracking_uri("http://my-mlflow.mlflow.svc.cluster.local:5000")
-            mlflow.set_experiment(experiment_name="mlflow-demo")
-            mlflow.set_registry_uri("postgresql://mlflow:mlflow-difficult-password@35.202.168.181:5432/mlflow")
-            # mlflow.set
+            mlflow.set_experiment(experiment_name="mlflow-demo-2")
+            # mlflow.set_registry_uri("mysql+pymysql://mlflow:mlflow-difficult-password@35.226.233.240/mlflow")
+            mlflow.set_registry_uri("http://my-mlflow.mlflow.svc.cluster.local:5000")
+            # mlflow.set_registry_uri("gs://data-bucket-6929d24320ef4e55/dataTrain/model")
+            # mlflow.set_registry_uri("http://my-mlflow.mlflow.svc.cluster.local:5000")
+            mlflow.sklearn.autolog()
+
             df = pd.read_csv(path)
 
             # split_dataset_for_training
@@ -369,8 +379,19 @@ spec:
             accuracy = round(accuracy * 100, 2)
 
             signature = infer_signature(x, y)
-            mlflow.log_metric("accuracy", accuracy)
-            mlflow.sklearn.log_model(sk_model=model, artifact_path="sklearn-model", registered_model_name="sklearn-model", signature=signature)
+            # print(signature)
+            # mlflow.log_metric("accuracy", accuracy)
+            mlflow.sklearn.log_model(model,
+                                     "sklearn-model-tests",
+                                     registered_model_name="sklearn-model-tests",
+                                     signature=signature
+                                     )
+            run_id = mlflow.last_active_run().info.run_id
+            print("Logged data and model in run {}".format(run_id))
+
+            # mlflow.sklearn.save_model(sk_model=model)
+
+            # mlflow.register_model(model, name="sklearn-model-tests")
 
             return accuracy
 
@@ -431,6 +452,7 @@ spec:
       annotations:
         pipelines.kubeflow.org/v2_component: "true"
         pipelines.kubeflow.org/component_ref: '{}'
+        pipelines.kubeflow.org/max_cache_staleness: P0D
       labels:
         pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
         pipelines.kubeflow.org/pipeline-sdk-type: kfp

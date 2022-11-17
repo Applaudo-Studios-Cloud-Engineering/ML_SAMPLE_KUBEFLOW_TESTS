@@ -1,0 +1,31 @@
+backendStore:
+  # -- Specifies if you want to run database migration
+  databaseMigration: true
+
+  # -- Add an additional init container, which checks for database availability
+  databaseConnectionCheck: true
+
+  mysql:
+    # -- Specifies if you want to use mysql backend storage
+    enabled: true
+    # -- MySQL host address. e.g. your Amazon RDS for MySQL
+    host: "35.226.233.240" # required
+    # -- MySQL service port
+    port: 3306 # required
+    # -- mlflow database name created before in the mysql instance
+    database: "mlflow" # required
+    # -- mysql database user name which can access to mlflow database
+    user: "mlflow" # required
+    # -- mysql database user password which can access to mlflow database
+    password: "mlflow-difficult-password" # required
+    # -- mysql database connection driver. e.g.: "pymysql"
+    driver: "pymysql"
+artifactRoot:
+  proxiedArtifactStorage: true
+  gcs:
+    # -- Specifies if you want to use Google Cloud Storage Mlflow Artifact Root
+    enabled: true
+    # -- Google Cloud Storage bucket name
+    bucket: "data-bucket-6929d24320ef4e55" # required
+    # -- Google Cloud Storage bucket folder. If you want to use root level, please don't set anything.
+    path: "dataTrain/model" # optional

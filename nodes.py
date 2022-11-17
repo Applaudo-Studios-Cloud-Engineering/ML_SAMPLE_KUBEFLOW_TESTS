@@ -2,8 +2,6 @@ import numpy as np
 from kfp.v2.dsl import component, Dataset, OutputPath, InputPath, Input, Output
 from pandas import DataFrame
 
-import mlflow
-import mlflow.sklearn
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 
@@ -137,18 +135,37 @@ def create_feature_engineering_pipeline(path: InputPath(Dataset),
 
 
 @component(
-    packages_to_install=["pandas", "scikit-learn", "mlflow", "psycopg2-binary"],
+    packages_to_install=[
+        "pandas",
+        "scikit-learn",
+        "mlflow",
+        # "psycopg2-binary",
+        # "python3-pymysql",
+        "pymysql",
+        "google-cloud-storage",
+        "mysqlclient"
+    ],
 )
 def create_ml_pipeline_classifier(path: InputPath(Dataset)) -> float:
     import pandas as pd
     from sklearn.tree import DecisionTreeClassifier
     import mlflow
+    import os
+    from google.cloud import storage
     from mlflow.models.signature import infer_signature
 
+    # os.environ["MLFLOW_TRACKING_URI "] = "http://my-minio.minio.svc.cluster.local:5000"
+    # os.environ["MLFLOW_DEFAULT_ARTIFACT_ROOT"] = "s3://mlflow/"
+    # os.environ["MLFLOW_ARTIFACTS_DESTINATION"] = "s3://mlflow/"
+
     mlflow.set_tracking_uri("http://my-mlflow.mlflow.svc.cluster.local:5000")
-    mlflow.set_experiment(experiment_name="mlflow-demo")
-    mlflow.set_registry_uri("postgresql://mlflow:password@host/mlflow")
-    # mlflow.set
+    mlflow.set_experiment(experiment_name="mlflow-demo-2")
+    # mlflow.set_registry_uri("mysql+pymysql://mlflow:mlflow-difficult-password@35.226.233.240/mlflow")
+    mlflow.set_registry_uri("http://my-mlflow.mlflow.svc.cluster.local:5000")
+    # mlflow.set_registry_uri("gs://data-bucket-6929d24320ef4e55/dataTrain/model")
+    # mlflow.set_registry_uri("http://my-mlflow.mlflow.svc.cluster.local:5000")
+    mlflow.sklearn.autolog()
+
     df = pd.read_csv(path)
 
     # split_dataset_for_training
@@ -165,17 +182,28 @@ def create_ml_pipeline_classifier(path: InputPath(Dataset)) -> float:
     accuracy = round(accuracy * 100, 2)
 
     signature = infer_signature(x, y)
-    mlflow.log_metric("accuracy", accuracy)
-    mlflow.sklearn.log_model(sk_model=model, artifact_path="sklearn-model", registered_model_name="sklearn-model", signature=signature)
+    # print(signature)
+    # mlflow.log_metric("accuracy", accuracy)
+    mlflow.sklearn.log_model(model,
+                             "sklearn-model-tests",
+                             registered_model_name="sklearn-model-tests",
+                             signature=signature
+                             )
+    run_id = mlflow.last_active_run().info.run_id
+    print("Logged data and model in run {}".format(run_id))
+
+    # mlflow.sklearn.save_model(sk_model=model)
+
+    # mlflow.register_model(model, name="sklearn-model-tests")
 
     return accuracy
+
 
 def eval_metrics(actual, pred):
     rmse = np.sqrt(mean_squared_error(actual, pred))
     mae = mean_absolute_error(actual, pred)
     r2 = r2_score(actual, pred)
     return rmse, mae, r2
-
 
 
 @component(
